@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>現場写真調書</title>
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="写真調書">
+
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000; }
+    body { margin: 0; padding: 15px; background: #f0f2f5; color: #000; }
+    
+    .controls {
+      position: sticky; top: 0; z-index: 1000; background: #fff;
+      padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    button {
+      padding: 10px 16px; border: none; border-radius: 6px; background: #007aff;
+      color: white !important; font-weight: bold; cursor: pointer; font-size: 14px;
+    }
+    button.save { background: #34c759; color: white !important; }
+    button.load { background: #5ac8fa; color: white !important; }
+    button.danger { background: #ff3b30; color: white !important; }
+
+    .a4-page {
+      width: 210mm; min-height: 297mm; padding: 15mm 12mm; margin: 0 auto 20px auto;
+      background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      box-sizing: border-box; display: flex; flex-direction: column; position: relative;
+    }
+
+    .page-header {
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 10mm;
+    }
+    .page-title { font-size: 20px; font-weight: bold; color: #000; }
+    .header-right { display: flex; align-items: center; gap: 5px; font-weight: bold; color: #000; }
+    .header-right input {
+      font-size: 16px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; width: 180px;
+      color: #000 !important; background: #fff;
+    }
+
+    .photo-grid {
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+      gap: 10mm; flex-grow: 1;
+    }
+
+    .photo-card {
+      border: 1px solid #666; border-radius: 4px; padding: 6px; background: #fafafa;
+      display: flex; flex-direction: column; height: 118mm;
+    }
+    
+    /* 写真枠がコメント欄の直上まで自動で全域拡張する設定 */
+    .image-box {
+      width: 100%; flex: 1; border: 1px dashed #ccc; background: #eee;
+      position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    }
+    .image-box img {
+      max-width: 100%; max-height: 100%; width: auto; height: auto;
+      object-fit: contain; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); margin: 0;
+    }
+    .image-box input[type="file"] {
+      position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;
+      top: 0; left: 0;
+    }
+    .placeholder { font-size: 12px; color: #555; text-align: center; pointer-events: none; }
+
+    .comment-box { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+    
+    /* テキスト完全黒色指定 */
+    .comment-box select, .comment-box input {
+      width: 100%; font-size: 12px; padding: 4px; border: 1px solid #ccc; border-radius: 3px;
+      color: #000 !important; background-color: #fff;
+      -webkit-appearance: none; appearance: none;
+    }
+    .comment-box select option { color: #000 !important; }
+
+    /* 印刷用スタイル */
+    @media print {
+      body { background: white; padding: 0; }
+      .controls, .delete-page-btn { display: none !important; }
+      .a4-page {
+        width: 100%; height: 100vh; margin: 0; border: none; box-shadow: none;
+        page-break-after: always; break-after: page; padding: 12mm;
+      }
+      .image-box { border: 1px solid #000; background: #fff; }
+      input, select {
+        border: 1px solid #000 !important;
+        color: #000 !important;
+        background: transparent !important;
+        -webkit-appearance: none; appearance: none;
+      }
+      .placeholder { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 操作メニューバー -->
+  <div class="controls">
+    <button onclick="addPage()">＋ ページ追加</button>
+    <button class="save" onclick="saveDraft()">途中保存</button>
+    <button class="load" onclick="loadDraft()">保存データ再開</button>
+    <button onclick="window.print()">A4 PDF出力 / 印刷</button>
+  </div>
+
+  <div id="pages-container"></div>
+
+  <script>
+    const CATEGORIES = [
+      "作業前", "作業後", "搬入状況", "足場仮設", "足場傾斜角", "足場全景",
+      "掘進状況", "標準貫入試験", "残尺", "残尺（拡大）", "検尺", "検尺（拡大）",
+      "孔内載荷試験", "湧水圧試験", "PS検層", "電気検層", "密度検層",
+      "キャリパー検層", "温度検層", "地下水検層", "モノレール架設", "モノレール起点",
+      "モノレール終点", "モノレール分岐", "モノレール検尺", "クローラ運搬",
+      "給水ポンプ設置", "ユニック搬入", "クレーン搬入", "人肩搬入",
+      "その他（自由入力）"
+    ];
+
+    let pageCount = 0;
+
+    function addPage() {
+      pageCount++;
+      const container = document.getElementById('pages-container');
+      const pageDiv = document.createElement('div');
+      pageDiv.className = 'a4-page';
+      pageDiv.id = `page-${pageCount}`;
+
+      let cardsHtml = '';
+      for (let i = 1; i <= 4; i++) {
+        cardsHtml += `
+          <div class="photo-card">
+            <div class="image-box">
+              <span class="placeholder">タップして写真撮影/選択</span>
+              <img id="img-${pageCount}-${i}" style="display:none;">
+              <input type="file" accept="image/*" onchange="previewImage(this, 'img-${pageCount}-${i}')">
+            </div>
+            <div class="comment-box">
+              <select class="data-input" onchange="handleCategoryChange(this)">
+                <option value="">【上段】大項目を選択</option>
+                ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select>
+              <input type="text" class="data-input" placeholder="【中段】任意コメント（音声入力可）">
+              <input type="text" class="data-input" placeholder="【下段】予備コメント（音声入力可）">
+            </div>
+          </div>
+        `;
+      }
+
+      pageDiv.innerHTML = `
+        <div class="page-header">
+          <div class="page-title">現場写真調書</div>
+          <div class="header-right">
+            地点名: <input type="text" class="data-input boring-point" placeholder="例: R6-IW-No.1">
+            <button class="danger delete-page-btn" onclick="this.closest('.a4-page').remove()" style="margin-left:10px; padding:4px 8px;">削除</button>
+          </div>
+        </div>
+        <div class="photo-grid">${cardsHtml}</div>
+      `;
+
+      container.appendChild(pageDiv);
+      return pageDiv;
+    }
+
+    function handleCategoryChange(selectEl) {
+      if (selectEl.value === "その他（自由入力）") {
+        const customText = prompt("上段のコメント（自由入力）を入力してください:");
+        if (customText && customText.trim() !== "") {
+          const newOpt = document.createElement("option");
+          newOpt.value = customText;
+          newOpt.textContent = customText;
+          selectEl.appendChild(newOpt);
+          selectEl.value = customText;
+        } else {
+          selectEl.value = "";
+        }
+      }
+    }
+
+    // 写真領域の拡大に伴い解像度を1000pxへ調整
+    function previewImage(input, targetId) {
+      if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+          const imgObj = new Image();
+          imgObj.onload = function() {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1000;
+            let width = imgObj.width;
+            let height = imgObj.height;
+
+            if (width > height) {
+              if (width > maxDim) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              }
+            } else {
+              if (height > maxDim) {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imgObj, 0, 0, width, height);
+
+            canvas.toBlob((blob) => {
+              const targetImg = document.getElementById(targetId);
+              if (targetImg._blobUrl) URL.revokeObjectURL(targetImg._blobUrl);
+              targetImg._blob = blob;
+              targetImg._blobUrl = URL.createObjectURL(blob);
+              targetImg.src = targetImg._blobUrl;
+              targetImg.style.display = 'block';
+
+              const placeholder = input.previousElementSibling;
+              if (placeholder && placeholder.className === 'placeholder') {
+                placeholder.style.display = 'none';
+              }
+            }, 'image/jpeg', 0.65);
+          };
+          imgObj.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    // 大容量データベース (IndexedDB)
+    const DB_NAME = 'SitePhotoReportDB_v2';
+    const STORE_NAME = 'report_blobs';
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    function collectAppData() {
+      const data = [];
+      document.querySelectorAll('.a4-page').forEach(page => {
+        const pageData = {
+          point: page.querySelector('.boring-point').value,
+          photos: []
+        };
+        page.querySelectorAll('.photo-card').forEach(card => {
+          const img = card.querySelector('img');
+          const inputs = card.querySelectorAll('.data-input');
+          pageData.photos.push({
+            blob: (img.style.display !== 'none' && img._blob) ? img._blob : null,
+            major: inputs[0].value,
+            mid: inputs[1].value,
+            low: inputs[2].value
+          });
+        });
+        data.push(pageData);
+      });
+      return data;
+    }
+
+    async function saveDraft() {
+      try {
+        const data = collectAppData();
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        
+        store.put(data, 'latest_draft');
+
+        tx.oncomplete = () => {
+          alert('途中データをスマホ内に正常保存しました！');
+        };
+        tx.onerror = (err) => {
+          alert('保存に失敗しました: ' + err.target.error.message);
+        };
+      } catch (e) {
+        alert('保存エラー: ' + e.message);
+      }
+    }
+
+    async function loadDraft() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.get('latest_draft');
+
+        request.onsuccess = () => {
+          const data = request.result;
+          if (!data) {
+            alert('保存された途中データが見つかりません。');
+            return;
+          }
+          if (confirm('保存されている途中データを読み込みますか？')) {
+            renderFromData(data);
+            alert('前回の続きからデータを読み込みました！');
+          }
+        };
+      } catch (e) {
+        alert('読み込みエラーが発生しました。');
+      }
+    }
+
+    function renderFromData(data) {
+      document.getElementById('pages-container').innerHTML = '';
+      pageCount = 0;
+
+      data.forEach(pageData => {
+        const pageDiv = addPage();
+        pageDiv.querySelector('.boring-point').value = pageData.point || '';
+
+        const cards = pageDiv.querySelectorAll('.photo-card');
+        pageData.photos.forEach((pData, idx) => {
+          if (cards[idx]) {
+            const card = cards[idx];
+            const img = card.querySelector('img');
+            const inputs = card.querySelectorAll('.data-input');
+
+            if (pData.blob) {
+              img._blob = pData.blob;
+              if (img._blobUrl) URL.revokeObjectURL(img._blobUrl);
+              img._blobUrl = URL.createObjectURL(pData.blob);
+              img.src = img._blobUrl;
+              img.style.display = 'block';
+              const placeholder = card.querySelector('.placeholder');
+              if (placeholder) placeholder.style.display = 'none';
+            }
+
+            if (pData.major) {
+              let opt = Array.from(inputs[0].options).find(o => o.value === pData.major);
+              if (!opt) {
+                opt = document.createElement('option');
+                opt.value = pData.major;
+                opt.textContent = pData.major;
+                inputs[0].appendChild(opt);
+              }
+              inputs[0].value = pData.major;
+            } else {
+              inputs[0].value = '';
+            }
+
+            inputs[1].value = pData.mid || '';
+            inputs[2].value = pData.low || '';
+          }
+        });
+      });
+    }
+
+    window.onload = function() { addPage(); };
+  </script>
+</body>
+</html>
